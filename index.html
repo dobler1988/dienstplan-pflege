@@ -359,22 +359,45 @@ function exportiereExcel() {
 }
 
 function exportiereICS() {
+  const dienstzeiten = {
+    P1: ["07:30", "16:00"],
+    P2: ["07:30", "13:00"],
+    P3: ["07:00", "10:00"],
+    P4: ["16:00", "21:00"],
+    P7: ["17:00", "21:00"],
+    P:  ["07:15", "18:30"],
+    P8: [["07:00", "10:00"], ["17:00", "21:00"]],
+    PS: ["13:00", "21:00"],
+    N:  ["20:45", "07:30"],
+    TB: ["18:00", "20:00"]
+  };
+
   let ics = `BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//ChatGPT Dienstplan//EN
+CALSCALE:GREGORIAN
 `;
   for (const datum in eintraege) {
     const [jahr, monat, tag] = datum.split("-");
-    const dt = `${jahr}${monat}${tag}`;
-    eintraege[datum].forEach((dienst, i) => {
-      if (dienst) {
+    const datePrefix = `${jahr}${monat}${tag}`;
+
+    eintraege[datum].forEach((dienst) => {
+      if (!dienst || !dienstzeiten[dienst]) return;
+
+      const zeiten = dienstzeiten[dienst];
+      const blocks = Array.isArray(zeiten[0][0]) ? zeiten : [zeiten];
+
+      blocks.forEach((block, i) => {
+        const [start, end] = Array.isArray(zeiten[0]) ? block : zeiten;
+        const startStr = `${datePrefix}T${start.replace(":", "")}00`;
+        const endStr = `${datePrefix}T${end.replace(":", "")}00`;
         ics += `BEGIN:VEVENT
 SUMMARY:${dienstnamen[dienst]}
-DTSTART;VALUE=DATE:${dt}
-DTEND;VALUE=DATE:${dt}
+DTSTART;TZID=Europe/Vienna:${startStr}
+DTEND;TZID=Europe/Vienna:${endStr}
 END:VEVENT
 `;
-      }
+      });
     });
   }
   ics += "END:VCALENDAR";
