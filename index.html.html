@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Dienstplan Karina</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f3f3f3;
+      margin: 10px;
+      padding: 10px;
+    }
+    h2 {
+      margin: 0;
+      padding: 0;
+    }
+    #logo {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 100px;
+    }
+    #kalender {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      margin-top: 10px;
+    }
+    .wochentage {
+      font-weight: bold;
+      text-align: center;
+      background-color: #e0e0e0;
+      padding: 2px;
+      border-radius: 4px;
+      font-size: 0.8em;
+    }
+    .tag {
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 3px;
+      min-height: 80px;
+      font-size: 0.75em;
+    }
+    .wochenende {
+      background-color: #eeeeee;
+    }
+    .tag label {
+      font-size: 0.75em;
+      display: block;
+      margin-bottom: 2px;
+    }
+    .navigation, .export {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    button {
+      font-size: 0.8em;
+      padding: 4px 8px;
+    }
+    input {
+      font-size: 0.8em;
+    }
+  </style>
+</head>
+<body>
+  <h2>Dienstplan Karina – Stiftung Liebenau</h2>
+  <img id="logo" src="logo.png" alt="Logo">
+  <div class="navigation">
+    <button onclick="monatZurueck()">« Zurück</button>
+    <strong id="monatJahr"></strong>
+    <button onclick="monatVor()">Weiter »</button>
+  </div>
+  <div id="kalender"></div>
+  <div style="margin-top: 10px; font-size: 0.85em;">
+    <label for="soll">Sollstunden (manuell):</label>
+    <input type="number" id="soll" value="160" onchange="berechneStunden()"> h
+    <br>
+    <strong>Ist-Stunden:</strong> <span id="ist">0</span> h
+    <br>
+    <strong>Abweichung:</strong> <span id="diff">0</span> h
+  </div>
+  <div class="export">
+    <button onclick="datenZuruecksetzen()">🗑️ Alle Einträge löschen</button>
+    <button onclick="exportiereExcel()">📄 Excel</button>
+    <button onclick="exportiereICS()">📅 Kalenderdatei</button>
+  </div>
+  <script>
+const dienstnamen = {
+  P1: "P1 (07:30 – 16:00)",
+  P2: "P2 (07:30 – 13:00)",
+  P3: "P3 (07:00 – 10:00)",
+  P4: "P4 (16:00 – 21:00)",
+  P7: "P7 (17:00 – 21:00)",
+  P: "P (07:15 – 18:30)",
+  P8: "P8 (07:00 – 10:00 & 17:00 – 21:00)",
+  PS: "PS (13:00 – 21:00)",
+  N: "Nacht (20:45 – 07:30)",
+  TB: "Teambesprechung (18:00 – 20:00)"
+};
+
+const dienststunden = {
+  P8: 7,
+  TB: 2,
+  P: 10.75,
+  P1: 8.5,
+  P2: 5.5,
+  P3: 3,
+  P4: 5,
+  P7: 4,
+  PS: 8,
+  N: 10.75
+};
+
+let eintraege = JSON.parse(localStorage.getItem("dienstplan")) || {};
+let monat = new Date().getMonth();
+let jahr = new Date().getFullYear();
+
+function erstelleKalender() {
+  const kalender = document.getElementById("kalender");
+  kalender.innerHTML = "";
+  document.getElementById("monatJahr").textContent = `${monatName(monat)} ${jahr}`;
+
+  const wochentage = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+  for (let tag of wochentage) {
+    const feld = document.createElement("div");
+    feld.className = "wochentage";
+    feld.textContent = tag;
+    kalender.appendChild(feld);
+  }
+
+  const ersterTag = new Date(jahr, monat, 1);
+  let startIndex = (ersterTag.getDay() + 6) % 7;
+
+  for (let i = 0; i < startIndex; i++) {
+    kalender.appendChild(document.createElement("div"));
+  }
+
+  const tageImMonat = new Date(jahr, monat + 1, 0).getDate();
+  for (let tag = 1; tag <= tageImMonat; tag++) {
+    const feld = document.createElement("div");
+    const aktuellesDatum = new Date(jahr, monat, tag);
+    const wochentag = aktuellesDatum.getDay();
+    feld.className = "tag";
+    if (wochentag === 0 || wochentag === 6) feld.classList.add("wochenende");
+
+    const datumKey = `${jahr}-${String(monat + 1).padStart(2, '0')}-${String(tag).padStart(2, '0')}`;
+    if (!eintraege[datumKey]) eintraege[datumKey] = [];
+
+    const label = document.createElement("label");
+    label.textContent = `${tag}.`;
+
+    const dienstfarben = {
+    P: "#b6fcb6", P1: "#d4fcb6", P2: "#fcdbb6",
+    P3: "#fcebb6", P4: "#b6d9fc", P7: "#8ab6fc",
+    P8: "#ffa07a", PS: "#dab6fc", N: "#dcdcdc", TB: "#c0c0ff"
+  };;
+
+    const dienstanzeige = document.createElement("div");
+    eintraege[datumKey].forEach((dienst) => {
+      if (dienst) {
+        const dienstDiv = document.createElement("div");
+        dienstDiv.textContent = dienstnamen[dienst];
+        dienstDiv.style.backgroundColor = dienstfarben[dienst] || "white";
+        dienstDiv.style.padding = "2px";
+        dienstDiv.style.marginTop = "2px";
+        dienstDiv.style.borderRadius = "4px";
+        dienstanzeige.appendChild(dienstDiv);
+      }
+    });
+
+    feld.appendChild(label);
+    feld.appendChild(dienstanzeige);
+    feld.addEventListener("click", () => zeigeDialog(datumKey));
+    kalender.appendChild(feld);
+  }
+}
+
+function zeigeDialog(datumKey) {
+  const dienstfarben = {
+    P: "#b6fcb6", P1: "#d4fcb6", P2: "#fcdbb6",
+    P3: "#fcebb6", P4: "#b6d9fc", P7: "#8ab6fc",
+    P8: "#ffa07a", PS: "#dab6fc", N: "#dcdcdc", TB: "#c0c0ff"
+  };
+
+  const container = document.createElement("div");
+  container.style.position = "fixed";
+  container.style.top = "50%";
+  container.style.left = "50%";
+  container.style.transform = "translate(-50%, -50%)";
+  container.style.background = "white";
+  container.style.border = "1px solid #ccc";
+  container.style.padding = "10px";
+  container.style.zIndex = 1000;
+  container.style.boxShadow = "0 0 10px rgba(0,0,0,0.3)";
+
+  const titel = document.createElement("h4");
+  titel.textContent = `Dienste am ${datumKey}`;
+  container.appendChild(titel);
+
+  if (!eintraege[datumKey]) eintraege[datumKey] = [];
+
+  eintraege[datumKey].forEach((dienst, index) => {
+    const dienstBlock = document.createElement("div");
+    dienstBlock.style.marginBottom = "5px";
+
+    const select = document.createElement("select");
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.text = "--";
+    select.appendChild(empty);
+    for (const key in dienstnamen) {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.text = dienstnamen[key];
+      opt.style.backgroundColor = dienstfarben[key];
+      select.appendChild(opt);
+    }
+    select.value = dienst;
+    select.onchange = () => {
+      eintraege[datumKey][index] = select.value;
+    };
+    dienstBlock.appendChild(select);
+
+    const loeschen = document.createElement("button");
+    loeschen.textContent = "🗑️";
+    loeschen.style.marginLeft = "5px";
+    loeschen.onclick = () => {
+      eintraege[datumKey].splice(index, 1);
+      document.body.removeChild(container);
+      zeigeDialog(datumKey);
+    };
+    dienstBlock.appendChild(loeschen);
+
+    container.appendChild(dienstBlock);
+  });
+
+  const neuerDienstBtn = document.createElement("button");
+  neuerDienstBtn.textContent = "+ Dienst hinzufügen";
+  neuerDienstBtn.onclick = () => {
+    eintraege[datumKey].push("");
+    document.body.removeChild(container);
+    zeigeDialog(datumKey);
+  };
+  container.appendChild(neuerDienstBtn);
+
+  const speichern = document.createElement("button");
+  speichern.textContent = "Speichern";
+  speichern.style.marginLeft = "10px";
+  speichern.onclick = () => {
+    const zeitbereiche = {
+      P1: [["07:30", "16:00"]],
+      P2: [["07:30", "13:00"]],
+      P3: [["07:00", "10:00"]],
+      P4: [["16:00", "21:00"]],
+      P7: [["17:00", "21:00"]],
+      P:  [["07:15", "18:30"]],
+      P8: [["07:00", "10:00"], ["17:00", "21:00"]],
+      PS: [["13:00", "21:00"]],
+      N:  [["20:45", "07:30"]],
+      TB: [["18:00", "20:00"]]
+    };
+
+    function zeitKonflikt(a, b) {
+      const [ah, am] = a[0].split(":").map(Number);
+      const [ae, aeM] = a[1].split(":").map(Number);
+      const [bh, bm] = b[0].split(":").map(Number);
+      const [be, beM] = b[1].split(":").map(Number);
+      const aStart = ah * 60 + am, aEnd = ae * 60 + aeM;
+      const bStart = bh * 60 + bm, bEnd = be * 60 + beM;
+      return aStart < bEnd && bStart < aEnd;
+    }
+
+    const zeiten = [];
+    eintraege[datumKey].forEach(d => {
+      (zeitbereiche[d] || []).forEach(z => zeiten.push(z));
+    });
+
+    let konflikt = false;
+    for (let i = 0; i < zeiten.length; i++) {
+      for (let j = i + 1; j < zeiten.length; j++) {
+        if (zeitKonflikt(zeiten[i], zeiten[j])) {
+          konflikt = true;
+        }
+      }
+    }
+
+    if (konflikt) {
+      alert("⚠️ Liebe Karina, achte darauf wie du die Dienste einteilst! Die Zeiten überschneiden sich :-) Hab dich lieb");
+    }
+
+    document.body.removeChild(container);
+    erstelleKalender();
+    berechneStunden();
+  };
+  container.appendChild(speichern);
+
+  const abbrechen = document.createElement("button");
+  abbrechen.textContent = "Abbrechen";
+  abbrechen.style.marginLeft = "10px";
+  abbrechen.onclick = () => {
+    document.body.removeChild(container);
+  };
+  container.appendChild(abbrechen);
+
+  document.body.appendChild(container);
+}
+
+function monatVor() {
+  monat++;
+  if (monat > 11) { monat = 0; jahr++; }
+  erstelleKalender();
+}
+
+function monatZurueck() {
+  monat--;
+  if (monat < 0) { monat = 11; jahr--; }
+  erstelleKalender();
+}
+
+function berechneStunden() {
+  let summe = 0;
+  for (const key in eintraege) {
+    const datum = new Date(key);
+    if (datum.getMonth() === monat && datum.getFullYear() === jahr) {
+      eintraege[key].forEach(d => { if (dienststunden[d]) summe += dienststunden[d]; });
+    }
+  }
+  document.getElementById("ist").textContent = summe.toFixed(2);
+  const soll = parseFloat(document.getElementById("soll").value) || 0;
+  document.getElementById("diff").textContent = (summe - soll).toFixed(2);
+  localStorage.setItem("dienstplan", JSON.stringify(eintraege));
+}
+
+function datenZuruecksetzen() {
+  if (confirm("Willst du wirklich alle Einträge löschen?")) {
+    localStorage.removeItem("dienstplan");
+    eintraege = {};
+    erstelleKalender();
+  }
+}
+
+function exportiereExcel() {
+  let daten = [["Datum", "Dienst 1", "Dienst 2", "Dienst 3", "Stunden"]];
+  for (const key in eintraege) {
+    const zeile = [key, ...eintraege[key]];
+    const stunden = eintraege[key].reduce((sum, d) => sum + (dienststunden[d] || 0), 0);
+    zeile.push(stunden);
+    daten.push(zeile);
+  }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(daten);
+  XLSX.utils.book_append_sheet(wb, ws, "Dienstplan");
+  XLSX.writeFile(wb, "dienstplan.xlsx");
+}
+
+function exportiereICS() {
+  let ics = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//ChatGPT Dienstplan//EN
+`;
+  for (const datum in eintraege) {
+    const [jahr, monat, tag] = datum.split("-");
+    const dt = `${jahr}${monat}${tag}`;
+    eintraege[datum].forEach((dienst, i) => {
+      if (dienst) {
+        ics += `BEGIN:VEVENT
+SUMMARY:${dienstnamen[dienst]}
+DTSTART;VALUE=DATE:${dt}
+DTEND;VALUE=DATE:${dt}
+END:VEVENT
+`;
+      }
+    });
+  }
+  ics += "END:VCALENDAR";
+  const blob = new Blob([ics], { type: "text/calendar" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "dienstplan.ics";
+  link.click();
+}
+
+function monatName(m) {
+  return ["Jänner", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"][m];
+}
+
+erstelleKalender();
+</script>
+</body>
+</html>
