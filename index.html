@@ -377,20 +377,29 @@ VERSION:2.0
 PRODID:-//ChatGPT Dienstplan//EN
 CALSCALE:GREGORIAN
 `;
-  for (const datum in eintraege) {
-    const [jahr, monat, tag] = datum.split("-");
-    const datePrefix = `${jahr}${monat}${tag}`;
+  function formatICSDate(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    const h = String(date.getHours()).padStart(2, "0");
+    const min = String(date.getMinutes()).padStart(2, "0");
+    return `${y}${m}${d}T${h}${min}00`;
+  }
 
+  for (const datum in eintraege) {
     eintraege[datum].forEach((dienst) => {
       if (!dienst || !dienstzeiten[dienst]) return;
 
       const zeiten = dienstzeiten[dienst];
-      const blocks = Array.isArray(zeiten[0][0]) ? zeiten : [zeiten];
+      const blocks = Array.isArray(zeiten[0]) ? zeiten : [zeiten];
 
-      blocks.forEach((block, i) => {
-        const [start, end] = Array.isArray(zeiten[0]) ? block : zeiten;
-        const startStr = `${datePrefix}T${start.replace(":", "")}00`;
-        const endStr = `${datePrefix}T${end.replace(":", "")}00`;
+      blocks.forEach((block) => {
+        const [start, end] = block;
+        const startDate = new Date(`${datum}T${start}`);
+        const endDate = new Date(`${datum}T${end}`);
+        if (endDate <= startDate) endDate.setDate(endDate.getDate() + 1);
+        const startStr = formatICSDate(startDate);
+        const endStr = formatICSDate(endDate);
         ics += `BEGIN:VEVENT
 SUMMARY:${dienstnamen[dienst]}
 DTSTART;TZID=Europe/Vienna:${startStr}
